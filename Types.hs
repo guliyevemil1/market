@@ -6,6 +6,8 @@ import Data.Time
 import Data.Monoid (mconcat)
 import Data.Function (on)
 import Data.List (intercalate)
+import Data.HashMap.Strict ((!))
+import qualified Data.HashMap.Strict as H
 
 import Control.Monad (when)
 import Control.Monad.State
@@ -14,11 +16,21 @@ import Control.Lens (makeLenses)
 import qualified Data.Set as S
 
 import Control.Applicative ((<$>), (<*>))
+import qualified Data.Text as T
 import Data.Aeson
-import Data.Data
-import Data.Typeable
+import qualified Data.ByteString.Lazy.Char8 as BS
 
-data Side = Buy | Sell deriving (Eq, Ord, Show)
+data Side = Buy | Sell | None deriving (Eq, Ord, Show)
+
+instance FromJSON Side where
+    parseJSON (String str) = case T.toLower str of
+        "buy" -> return Buy
+        "sell" -> return Sell
+        _ -> error "Side is specified incorrectly."
+    parseJSON _ = error "Side is not specified."
+
+instance ToJSON Side where
+    toJSON = String . T.toLower . T.pack . show
 
 oppSide :: Side -> Side
 oppSide Buy = Sell
@@ -29,12 +41,21 @@ sideToNum Buy = 1
 sideToNum Sell = -1
 
 type Id = Int
-type Product = String
+type Product = T.Text
 type Price = Double
 type Volume = Int
-type Owner = String
+type Owner = T.Text
 
 data OrderType = Market | Limit | Cancel | FOK deriving (Eq, Show)
+
+instance FromJSON OrderType where
+    parseJSON (String str) = case T.toLower str of
+        "market" -> return Market
+        "limit" -> return Limit
+        "cancel" -> return Cancel
+        "fok" -> return FOK
+        _ -> error "Order type is specified incorrectly."
+    parseJSON _ = error "Order type is not specified."
 
 class Tradeable a where
     owner :: a -> Owner
@@ -43,12 +64,13 @@ class Tradeable a where
     price :: a -> Price
 
 data Order = Order {
+        _quoteId :: Maybe Id,
         _orderOwner :: Owner,
         _orderType :: OrderType,
         _orderSide :: Side,
         _orderPrice :: Price, 
         _orderVolume :: Volume
-    } deriving (Eq)
+    } deriving (Eq, Show)
     
 $( makeLenses ''Order )
 
@@ -58,19 +80,32 @@ instance Tradeable Order where
     volume = _orderVolume
     price = _orderPrice
 
---instance FromJSON OrderType where
-{-
 instance FromJSON Order where
-    parseJSON (Object v) = Order <$>
-                            v .: "owner" <*>
-                            v .: "type"  <*>
-                            v .: "side" <*>
-                            v .: "price" <*>
-                            v .: "volume"
+    parseJSON (Object v) = case H.lookup "id" v of
+        Just id -> Order <$> 
+            v .: "id" <*>
+            v .: "owner" <*>
+            v .: "type" <*>
+            return None <*>
+            return 0 <*>
+            return 0
+        _ -> Order <$>
+            v .:? "id" <*>
+            v .: "owner" <*>
+            v .: "type"  <*>
+            v .: "side" <*>
+            v .: "price" <*>
+            v .: "volume"
 
-instance ToJSON Order where
-    toJSON (Order o ot s p v) = object ["owner" .= _orderOwner, "side" .= _orderSide, "price" .= _orderPrice, "volume" .= _orderVolume]
--}
+data OrderResponse = OrderFullTrade |
+    OrderPartialTrade |
+    OrderAdded |
+    OrderCancelled |
+    OrderUnfulfilled |
+    OrderFailed deriving Show
+
+instance ToJSON OrderResponse where
+    toJSON o = object ["response" .= T.pack (show o)]
 
 data Quote = Quote {
         _id :: Id,
@@ -79,15 +114,26 @@ data Quote = Quote {
         _quoteSide :: Side,
         _quotePrice :: Price, 
         _quoteVolume :: Volume
-    } deriving Eq
+    } deriving (Eq)
 
 $( makeLenses ''Quote )
+
+instance ToJSON Quote where
+    toJSON q = object [
+        "id" .= _id q, 
+        "time" .= _timestamp q,
+        "side" .= side q, 
+        "price" .= price q, 
+        "volume" .= volume q]
 
 instance Tradeable Quote where
     owner = _quoteOwner
     side = _quoteSide
     volume = _quoteVolume
     price = _quotePrice
+
+instance Ord Quote where
+    compare o o' = mconcat $ map (\f -> f o o') [compare `on` side, compare `on` priceComparator, compare `on` _timestamp]
 
 instance Show Quote where
     show o = intercalate " " $ map ($ o) [show . owner, show . price, show . volume]
@@ -112,9 +158,6 @@ instance Ord Trade where
 priceComparator :: Quote -> Price
 priceComparator order = negate $ sideToNum (side order) * (price order)
 
-instance Ord Quote where
-    compare o o' = mconcat $ map (\f -> f o o') [compare `on` side, compare `on` priceComparator, compare `on` _timestamp]
-
 data MarketDepth = MarketDepth { 
         _product :: Product,
         _leastUnusedId :: Id,
@@ -125,9 +168,10 @@ data MarketDepth = MarketDepth {
 
 newMarketDepth = MarketDepth "" 0 S.empty S.empty S.empty
 
-instance Show MarketDepth where
-    show ms = intercalate " --- " $ map (\f -> intercalate "," . map show . f $ ms) [reverse . S.toList . _buyOrders, reverse . S.toList . _sellOrders]
-
 $( makeLenses ''MarketDepth )
+
+instance Show MarketDepth where
+    show ms = intercalate " --- " $ 
+        map (\f -> intercalate "," . map show . f $ ms) [reverse . S.toList . _buyOrders, reverse . S.toList . _sellOrders]
 
 type MarketState = StateT MarketDepth IO
