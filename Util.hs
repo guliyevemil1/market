@@ -25,9 +25,6 @@ bestBid = bestOnSide Buy
 bestAsk :: MarketState (Maybe Quote)
 bestAsk = bestOnSide Sell
 
-type OrderSide = S.Set Quote
-type MarketSideLens f = (OrderSide -> f OrderSide) -> (MarketDepth -> f MarketDepth)
-
 getMarketSide :: (Functor f) => Side -> MarketSideLens f
 getMarketSide Buy = buyOrders
 getMarketSide Sell = sellOrders
@@ -35,15 +32,11 @@ getMarketSide Sell = sellOrders
 determineSide :: (Functor f, Tradeable t) => t -> MarketSideLens f
 determineSide = getMarketSide . side
 
-doubleLiftM f = liftM (liftM f)
-
 marketIsCrossing :: MarketState Bool
 marketIsCrossing = do
-    ba <- doubleLiftM price bestAsk
-    bb <- doubleLiftM price bestBid
-    return $ case liftM2 (<=) ba bb of
-        Nothing -> False
-        Just b -> b
+    bb <- liftM (maybe 0 price) bestBid
+    ba <- liftM (maybe (bb+1) price) bestAsk
+    return $ ba <= bb
 
 removeVolumeFromSet :: Volume -> S.Set Quote -> S.Set Quote
 removeVolumeFromSet v s = if S.null s then s else volumeRemovedS
@@ -85,4 +78,3 @@ getBuyerSeller x y = case (side x, side y) of
     (Buy, Sell) -> (owner x, owner y)
     (Sell, Buy) -> (owner y, owner x)
     _ -> error "Both agents on the same side."
-

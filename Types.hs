@@ -1,9 +1,10 @@
-{-# LANGUAGE TemplateHaskell, OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell, OverloadedStrings, TypeSynonymInstances #-}
 
 module Market.Types where
 
 import Data.Time
-import Data.Monoid (mconcat)
+import Data.Maybe (fromMaybe)
+import Data.Monoid hiding (Product)
 import Data.Function (on)
 import Data.List (intercalate)
 import Data.HashMap.Strict ((!))
@@ -36,6 +37,10 @@ oppSide :: Side -> Side
 oppSide Buy = Sell
 oppSIde Sell = Buy
 
+instance Monoid Side where
+    mempty = None
+    mappend = undefined
+
 sideToNum :: Num a => Side -> a
 sideToNum Buy = 1
 sideToNum Sell = -1
@@ -45,6 +50,14 @@ type Product = T.Text
 type Price = Double
 type Volume = Int
 type Owner = T.Text
+
+instance Monoid Price where
+    mempty = 0
+    mappend = (+)
+
+instance Monoid Volume where
+    mempty = 0
+    mappend = (+)
 
 data OrderType = Market | Limit | Cancel | FOK deriving (Eq, Show)
 
@@ -80,22 +93,16 @@ instance Tradeable Order where
     volume = _orderVolume
     price = _orderPrice
 
+(.:!) v f = liftM (fromMaybe mempty) $ v .:? f
+
 instance FromJSON Order where
-    parseJSON (Object v) = case H.lookup "id" v of
-        Just id -> Order <$> 
-            v .: "id" <*>
-            v .: "owner" <*>
-            v .: "type" <*>
-            return None <*>
-            return 0 <*>
-            return 0
-        _ -> Order <$>
+    parseJSON (Object v) = Order <$>
             v .:? "id" <*>
             v .: "owner" <*>
             v .: "type"  <*>
-            v .: "side" <*>
-            v .: "price" <*>
-            v .: "volume"
+            v .:! "side" <*>
+            v .:! "price" <*>
+            v .:! "volume"
 
 data OrderResponse = OrderFullTrade |
     OrderPartialTrade |
@@ -158,17 +165,21 @@ instance Ord Trade where
 priceComparator :: Quote -> Price
 priceComparator order = negate $ sideToNum (side order) * (price order)
 
+type OrderSide = S.Set Quote
+
 data MarketDepth = MarketDepth { 
         _product :: Product,
         _leastUnusedId :: Id,
         _executedOrders :: S.Set Trade,
-        _buyOrders :: S.Set Quote, 
-        _sellOrders :: S.Set Quote
+        _buyOrders :: OrderSide, 
+        _sellOrders :: OrderSide
     } 
 
 newMarketDepth = MarketDepth "" 0 S.empty S.empty S.empty
 
 $( makeLenses ''MarketDepth )
+
+type MarketSideLens f = (OrderSide -> f OrderSide) -> (MarketDepth -> f MarketDepth)
 
 instance Show MarketDepth where
     show ms = intercalate " --- " $ 
