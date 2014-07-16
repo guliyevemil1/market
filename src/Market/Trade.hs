@@ -16,7 +16,7 @@ import Control.Lens
 
 import qualified Data.Set as S
 
-{-
+--
 executeCrossingTrade :: MarketState ()
 executeCrossingTrade = do
     myBestBid <- liftM fromJust bestBid
@@ -26,7 +26,7 @@ executeCrossingTrade = do
     let executedTradeVolume = min myBestAskVolume myBestBidVolume
     currentTime <- lift getCurrentTime
     let currentTrade = Trade (owner myBestBid) (owner myBestAsk) (getPrice myBestBid myBestAsk) executedTradeVolume currentTime
-    executedOrders %= S.insert currentTrade
+    executedTrades %= S.insert currentTrade
     removeVolumeFromBothSides executedTradeVolume
 
 resolveCrosses :: MarketState ()
@@ -43,12 +43,12 @@ executeTrade o q = do
     myCurrentTime <- lift getCurrentTime
     let (myBuyer, mySeller) = getBuyerSeller o q
     let currentTrade = Trade myBuyer mySeller myTradePrice myTradeVolume myCurrentTime
-    executedOrders %= S.insert currentTrade
+    executedTrades %= S.insert currentTrade
     removeVolumeFromOneSide (side q) myTradeVolume
 
 orderCrossesMarket :: Order -> MarketState Bool
 orderCrossesMarket order = do
-    bestOnOpposingSide <- bestOnSide $ oppSide $ side o
+    bestOnOpposingSide <- bestOnSide $ oppSide $ side order
     case bestOnOpposingSide of
         Nothing -> return False
         Just bestQuote -> do
@@ -59,14 +59,14 @@ orderCrossesMarket order = do
                     EQ -> return False
                     GT -> return False
             else return False
--}
+--
 
+{-
 executeTrade :: (Tradeable a, Tradeable b) => a -> b -> MarketState ()
 executeTrade x y = do
     let executedTradeVolume = min myBestAskVolume myBestBidVolume
     currentTime <- lift getCurrentTime
-    let currentTrade = 
-        Trade (owner myBestBid) (owner myBestAsk) (getPrice myBestBid myBestAsk) executedTradeVolume currentTime
+    let currentTrade = Trade (owner myBestBid) (owner myBestAsk) (getPrice myBestBid myBestAsk) executedTradeVolume currentTime
     executedTrades %= S.insert newTrade
     
 
@@ -92,4 +92,5 @@ executeOrder order = case _orderType order of
     Market -> return ()
     FOK -> return ()
     Cancel -> return ()
+-}
 
