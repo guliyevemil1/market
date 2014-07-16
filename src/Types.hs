@@ -19,6 +19,7 @@ import qualified Data.Set as S
 import Control.Applicative ((<$>), (<*>))
 import qualified Data.Text as T
 import Data.Aeson
+import Data.Aeson.Types
 import qualified Data.ByteString.Lazy.Char8 as BS
 
 data Side = Buy | Sell | None deriving (Eq, Ord, Show)
@@ -32,10 +33,6 @@ instance FromJSON Side where
 
 instance ToJSON Side where
     toJSON = String . T.toLower . T.pack . show
-
-oppSide :: Side -> Side
-oppSide Buy = Sell
-oppSIde Sell = Buy
 
 instance Monoid Side where
     mempty = None
@@ -93,7 +90,8 @@ instance Tradeable Order where
     volume = _orderVolume
     price = _orderPrice
 
-(.:!) v f = liftM (fromMaybe mempty) $ v .:? f
+(.:!) :: (Monoid r, FromJSON r) => Object -> T.Text -> Parser r
+v .:! f = liftM (fromMaybe mempty) $ v .:? f
 
 instance FromJSON Order where
     parseJSON (Object v) = Order <$>
@@ -162,15 +160,15 @@ instance Tradeable Trade where
 instance Ord Trade where
     compare = compare `on` _tradedTimestamp
 
-priceComparator :: Quote -> Price
-priceComparator order = negate $ sideToNum (side order) * (price order)
+priceComparator :: Tradeable t => t -> Price
+priceComparator tradeable = negate $ sideToNum (side tradeable) * (price tradeable)
 
 type OrderSide = S.Set Quote
 
 data MarketDepth = MarketDepth { 
         _product :: Product,
         _leastUnusedId :: Id,
-        _executedOrders :: S.Set Trade,
+        _executedTrades :: S.Set Trade,
         _buyOrders :: OrderSide, 
         _sellOrders :: OrderSide
     } 

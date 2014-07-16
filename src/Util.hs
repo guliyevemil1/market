@@ -14,10 +14,17 @@ import Control.Lens
 
 import qualified Data.Set as S
 
+oppSide :: Side -> Side
+oppSide Buy = Sell
+oppSide Sell = Buy
+
 bestOnSide :: Side -> MarketState (Maybe Quote)
 bestOnSide s = do
     side <- use (getMarketSide s)
     return $ if S.null side then Nothing else Just $ S.findMax side
+
+bestOnOppSide :: Side -> MarketState (Maybe Quote)
+bestOnOppSide = bestOnSide . oppSide
 
 bestBid :: MarketState (Maybe Quote)
 bestBid = bestOnSide Buy

@@ -16,6 +16,7 @@ import Control.Lens
 
 import qualified Data.Set as S
 
+{-
 executeCrossingTrade :: MarketState ()
 executeCrossingTrade = do
     myBestBid <- liftM fromJust bestBid
@@ -46,24 +47,49 @@ executeTrade o q = do
     removeVolumeFromOneSide (side q) myTradeVolume
 
 orderCrossesMarket :: Order -> MarketState Bool
-orderCrossesMarket o = do
+orderCrossesMarket order = do
     bestOnOpposingSide <- bestOnSide $ oppSide $ side o
     case bestOnOpposingSide of
         Nothing -> return False
         Just bestQuote -> do
-            if (canTrade o bestQuote) 
+            if (canTrade order bestQuote) 
             then do
-                case compare (volume o) (volume bestQuote) of
+                case compare (volume order) (volume bestQuote) of
                     LT -> return False
                     EQ -> return False
                     GT -> return False
             else return False
+-}
+
+executeTrade :: (Tradeable a, Tradeable b) => a -> b -> MarketState ()
+executeTrade x y = do
+    let executedTradeVolume = min myBestAskVolume myBestBidVolume
+    currentTime <- lift getCurrentTime
+    let currentTrade = 
+        Trade (owner myBestBid) (owner myBestAsk) (getPrice myBestBid myBestAsk) executedTradeVolume currentTime
+    executedTrades %= S.insert newTrade
+    
+
+tradeCrossingQuotes :: Order -> MarketState Quote
+tradeCrossingQuotes order = do
+    bestQuote <- bestOnOppSide $ side order
+    case bestOnOpposingSide of
+        Nothing -> return $ orderToQuote order
+        Just bestQuote -> do
+            if (canTrade order bestQuote) 
+            then do
+                case compare (volume order) (volume bestQuote) of
+                    LT -> return False
+                    EQ -> return False
+                    GT -> return False
+            else return $ orderToQuote order
 
 executeOrder :: Order -> MarketState ()
-executeOrder o = case _orderType o of 
+executeOrder order = case _orderType order of 
     Limit -> do
-        myQuote <- orderToQuote o
-        determineSide o %= S.insert myQuote
+        remainingQuote <- tradeCrossingQuotes order
+        determineSide order %= S.insert remainingQuote
     Market -> return ()
     FOK -> return ()
     Cancel -> return ()
+
